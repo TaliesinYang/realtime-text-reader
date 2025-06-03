@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local TXT Reader - Auto Scroll Fix (FS API)</title>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+            background-color: #f0f2f5;
+            color: #1c1e21;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .page-header {
+            padding: 15px 25px;
+            background-color: #ffffff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            z-index: 10;
+            flex-shrink: 0;
+        }
+
+        .page-header h1 {
+            color: #333;
+            text-align: center;
+            margin: 0 0 10px 0;
+            font-size: 1.5em;
+        }
+
+        .page-header p.note {
+            font-size: 0.85rem;
+            color: #555;
+            background-color: #e9f5ff;
+            padding: 8px 12px;
+            border-left: 4px solid #007bff;
+            margin: 0 0 15px 0;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+
+        #selectFileButton {
+            padding: 10px 18px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: background-color 0.2s ease;
+        }
+        #selectFileButton:hover {
+            background-color: #0056b3;
+        }
+
+        #fileName {
+            font-style: italic;
+            color: #555;
+        }
+
+        #contentOuterContainer {
+            flex-grow: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            padding: 15px 25px 10px 25px;
+            background-color: #f0f2f5;
+        }
+
+        #fileContent {
+            height: 100%;
+            overflow-y: auto;
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 15px;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .text-line {
+            margin-bottom: 0.8em;
+            line-height: 1.6;
+            font-size: 1rem;
+            color: #333;
+            word-wrap: break-word;
+        }
+        .text-line:empty::before {
+            content: "\00a0";
+        }
+
+        #status {
+            padding: 10px 25px;
+            background-color: #ffffff;
+            color: #666;
+            font-size: 0.9rem;
+            text-align: center;
+            border-top: 1px solid #e0e0e0;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <header class="page-header">
+        <h1>Local TXT Reader - Auto Scroll Fix</h1>
+        <p class="note">This version attempts to maintain scroll at the bottom even after translation plugins modify the content.</p>
+        <p class="note" id="compatibilityNote" style="background-color: #fff3cd; border-left-color: #ffc107; display: none;">
+            <strong>Browser Compatibility:</strong> This tool works best in Chrome/Edge 86+. Firefox and Safari users can use the basic file upload mode.
+        </p>
+        <div class="controls">
+            <button id="selectFileButton">Select and Monitor TXT File</button>
+            <input type="file" id="fallbackFileInput" accept=".txt" style="display: none;">
+            <button id="fallbackButton" style="display: none;">Upload TXT File (Basic Mode)</button>
+            <span id="fileName">No file selected</span>
+        </div>
+    </header>
+
+    <div id="contentOuterContainer">
+        <div id="fileContent">
+            <div class="text-line">Please click the button above to select a .txt file to monitor...</div>
+        </div>
+    </div>
+
+    <div id="status">Status messages will appear here.</div>
+
+    <script>
+        const selectFileButton = document.getElementById('selectFileButton');
+        const fileNameSpan = document.getElementById('fileName');
+        const statusDiv = document.getElementById('status');
+
+        let fileHandle = null;
+        let lastModifiedTime = 0;
+        let lastReadPosition = 0;
+        const refreshInterval = 1500; // ms
+        let intervalId = null;
+
+        // --- MutationObserver related variables ---
+        let activeFileContentObserver = null;
+        let scrollDebounceTimeoutId = null;
+        const DEBOUNCE_DELAY = 150; // milliseconds
+
+        if (!('showOpenFilePicker' in window)) {
+            statusDiv.textContent = 'Sorry, your browser does not support the File System Access API.';
+            selectFileButton.disabled = true;
+            selectFileButton.style.backgroundColor = '#ccc';
+        }
+
+        selectFileButton.addEventListener('click', async () => {
+            if (intervalId) clearInterval(intervalId);
+            if (activeFileContentObserver) { // Disconnect observer from any previous file
+                activeFileContentObserver.disconnect();
+                activeFileContentObserver = null;
+            }
+
+            try {
+                const [handle] = await window.showOpenFilePicker({
+                    types: [{ description: 'Text Files', accept: { 'text/plain': ['.txt'] } }]
+                });
+                fileHandle = handle;
+                fileNameSpan.textContent = fileHandle.name;
+                statusDiv.textContent = `Preparing to monitor file: ${fileHandle.name}`;
+                lastReadPosition = 0;
+
+                await processFileContent(true);
+
+                intervalId = setInterval(checkAndUpdateFile, refreshInterval);
+            } catch (err) {
+                handleFileError(err, 'User cancelled file selection or an error occurred.');
+            }
+        });
+
+        async function processFileContent(isInitialLoadOrFullRefresh = false) {
+            if (!fileHandle) return;
+
+            try {
+                const file = await fileHandle.getFile();
+                let fullTextToDisplay = "";
+
+                if (isInitialLoadOrFullRefresh) {
+                    fullTextToDisplay = await file.text();
+                    lastReadPosition = file.size;
+                    statusDiv.textContent = `File "${file.name}" has been fully loaded. Size: ${file.size} bytes.`;
+                } else {
+                    if (file.size > lastReadPosition) {
+                        const newContentSlice = file.slice(lastReadPosition);
+                        const newTextChunk = await newContentSlice.text();
+                        
+                        const currentFileContentElement = document.getElementById('fileContent');
+                        let previousFullText = "";
+                        if (currentFileContentElement && currentFileContentElement.dataset.fullText) {
+                            previousFullText = currentFileContentElement.dataset.fullText;
+                        }
+                        let separator = (previousFullText && newTextChunk) ? "\n" : "";
+                        fullTextToDisplay = previousFullText + separator + newTextChunk;
+
+                        lastReadPosition = file.size;
+                        statusDiv.textContent = `File "${file.name}" has new content. Current size: ${file.size} bytes.`;
+                    } else {
+                        const currentFileContentElement = document.getElementById('fileContent');
+                        fullTextToDisplay = (currentFileContentElement && currentFileContentElement.dataset.fullText) ?
+                                            currentFileContentElement.dataset.fullText :
+                                            await file.text();
+                        if (currentFileContentElement && currentFileContentElement.dataset.fullText === undefined) {
+                             lastReadPosition = file.size; // Fallback if dataset was missing
+                        }
+                    }
+                }
+
+                const parentOfFileContent = document.getElementById('contentOuterContainer');
+                const oldFileContentElement = document.getElementById('fileContent');
+
+                // Disconnect existing observer before removing the old element
+                if (oldFileContentElement && oldFileContentElement._currentObserver) {
+                    oldFileContentElement._currentObserver.disconnect();
+                    oldFileContentElement._currentObserver = null;
+                }
+                if (activeFileContentObserver) { // Also ensure global one is clear if it matches
+                     activeFileContentObserver.disconnect();
+                     activeFileContentObserver = null;
+                }
+
+
+                if (oldFileContentElement) {
+                    parentOfFileContent.removeChild(oldFileContentElement);
+                }
+
+                const newFileContentElement = document.createElement('div');
+                newFileContentElement.id = 'fileContent';
+                newFileContentElement.dataset.fullText = fullTextToDisplay;
+                parentOfFileContent.appendChild(newFileContentElement);
+
+                const lines = fullTextToDisplay.split('\n');
+                lines.forEach(lineText => {
+                    const lineElement = document.createElement('div');
+                    lineElement.className = 'text-line';
+                    lineElement.textContent = lineText;
+                    newFileContentElement.appendChild(lineElement);
+                });
+
+                scrollToBottom(newFileContentElement); // Initial scroll
+                lastModifiedTime = file.lastModified;
+
+                // --- Setup MutationObserver for the new content element ---
+                activeFileContentObserver = new MutationObserver(() => {
+                    clearTimeout(scrollDebounceTimeoutId);
+                    scrollDebounceTimeoutId = setTimeout(() => {
+                        const currentElement = document.getElementById('fileContent'); // Ensure it's still the one we care about
+                        if (currentElement) {
+                            // console.log("MutationObserver triggered scroll to bottom due to DOM change.");
+                            scrollToBottom(currentElement);
+                        }
+                    }, DEBOUNCE_DELAY);
+                });
+
+                const observerConfig = {
+                    childList: true, // Watch for addition/removal of child nodes (e.g., Immersive Translate adding spans)
+                    subtree: true    // Watch all descendants
+                };
+                activeFileContentObserver.observe(newFileContentElement, observerConfig);
+                newFileContentElement._currentObserver = activeFileContentObserver; // Store ref on element for cleanup
+
+            } catch (err) {
+                handleFileError(err, 'Error processing file content.');
+            }
+        }
+
+        async function checkAndUpdateFile() {
+            if (!fileHandle) return;
+            try {
+                const file = await fileHandle.getFile();
+                if (file.lastModified > lastModifiedTime) {
+                    // console.log(`File ${file.name} modified. Size: ${file.size}, LastRead: ${lastReadPosition}`);
+                    statusDiv.textContent = `Detected update for file "${file.name}"...`;
+
+                    if (file.size > lastReadPosition) {
+                        await processFileContent(false);
+                    } else {
+                        statusDiv.textContent = `File "${file.name}" content has changed or was truncated, reloading...`;
+                        lastReadPosition = 0;
+                        await processFileContent(true);
+                    }
+                }
+            } catch (err) {
+                handleFileError(err, 'Error checking for file updates.');
+            }
+        }
+
+        function scrollToBottom(element) {
+            if (element) {
+                element.scrollTop = element.scrollHeight;
+            }
+        }
+
+        function handleFileError(err, defaultMessage) {
+            if (err.name === 'AbortError') {
+                statusDiv.textContent = 'User cancelled the operation.';
+            } else if (err.name === 'NotFoundError') {
+                 statusDiv.textContent = `Error: File "${fileHandle ? fileHandle.name : ''}" not found. Please reselect.`;
+            } else {
+                statusDiv.textContent = `Error: ${err.message || defaultMessage}`;
+                console.error(err);
+            }
+            if (intervalId) clearInterval(intervalId);
+            if (activeFileContentObserver) { // Stop observing on error too
+                activeFileContentObserver.disconnect();
+                activeFileContentObserver = null;
+            }
+        }
+    </script>
+
+</body>
+</html>

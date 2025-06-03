@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local TXT Reader - Auto Scroll Fix (FS API)</title>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+            background-color: #f0f2f5;
+            color: #1c1e21;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .page-header {
+            padding: 15px 25px;
+            background-color: #ffffff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            z-index: 10;
+            flex-shrink: 0;
+        }
+
+        .page-header h1 {
+            color: #333;
+            text-align: center;
+            margin: 0 0 10px 0;
+            font-size: 1.5em;
+        }
+
+        .page-header p.note {
+            font-size: 0.85rem;
+            color: #555;
+            background-color: #e9f5ff;
+            padding: 8px 12px;
+            border-left: 4px solid #007bff;
+            margin: 0 0 15px 0;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .compatibility-note {
+            background-color: #fff3cd !important;
+            border-left-color: #ffc107 !important;
+            color: #856404 !important;
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 18px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: background-color 0.2s ease;
+        }
+        .btn:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+        .btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background-color: #6c757d;
+        }
+        .btn-secondary:hover:not(:disabled) {
+            background-color: #545b62;
+        }
+
+        #fileName {
+            font-style: italic;
+            color: #555;
+        }
+
+        #contentOuterContainer {
+            flex-grow: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            padding: 15px 25px 10px 25px;
+            background-color: #f0f2f5;
+        }
+
+        #fileContent {
+            height: 100%;
+            overflow-y: auto;
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 15px;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .text-line {
+            margin-bottom: 0.8em;
+            line-height: 1.6;
+            font-size: 1rem;
+            color: #333;
+            word-wrap: break-word;
+        }
+        .text-line:empty::before {
+            content: "\00a0";
+        }
+
+        #status {
+            padding: 10px 25px;
+            background-color: #ffffff;
+            color: #666;
+            font-size: 0.9rem;
+            text-align: center;
+            border-top: 1px solid #e0e0e0;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+
+        .github-link {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background-color: #24292e;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 0.8rem;
+            z-index: 100;
+        }
+        .github-link:hover {
+            background-color: #1b1f23;
+            color: white;
+        }
+
+        #fallbackFileInput {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- GitHub link for deployed version -->
+    <a href="https://github.com/yourusername/txt-reader" class="github-link" target="_blank">
+        ⭐ Star on GitHub
+    </a>
+
+    <header class="page-header">
+        <h1>Local TXT Reader - Auto Scroll Fix</h1>
+        <p class="note">This version attempts to maintain scroll at the bottom even after translation plugins modify the content.</p>
+        <p class="note compatibility-note" id="compatibilityNote" style="display: none;">
+            <strong>Browser Compatibility:</strong> This tool works best in Chrome/Edge 86+. Firefox and Safari users can use the basic file upload mode below.
+        </p>
+        <div class="controls">
+            <button id="selectFileButton" class="btn">Select and Monitor TXT File</button>
+            <button id="fallbackButton" class="btn btn-secondary" style="display: none;">Upload TXT File (Basic Mode)</button>
+            <input type="file" id="fallbackFileInput" accept=".txt">
+            <span id="fileName">No file selected</span>
+        </div>
+    </header>
+
+    <div id="contentOuterContainer">
+        <div id="fileContent">
+            <div class="text-line">Please click the button above to select a .txt file to monitor...</div>
+        </div>
+    </div>
+
+    <div id="status">Status messages will appear here.</div>
+
+    <script>
+        const selectFileButton = document.getElementById('selectFileButton');
+        const fallbackButton = document.getElementById('fallbackButton');
+        const fallbackFileInput = document.getElementById('fallbackFileInput');
+        const fileNameSpan = document.getElementById('fileName');
+        const statusDiv = document.getElementById('status');
+        const compatibilityNote = document.getElementById('compatibilityNote');
+
+        let fileHandle = null;
+        let lastModifiedTime = 0;
+        let lastReadPosition = 0;
+        const refreshInterval = 1500; // ms
+        let intervalId = null;
+        let isUsingFallbackMode = false;
+
+        // --- MutationObserver related variables ---
+        let activeFileContentObserver = null;
+        let scrollDebounceTimeoutId = null;
+        const DEBOUNCE_DELAY = 150; // milliseconds
+
+        // Check browser compatibility
+        if (!('showOpenFilePicker' in window)) {
+            // Show compatibility note and fallback option
+            compatibilityNote.style.display = 'block';
+            selectFileButton.disabled = true;
+            selectFileButton.style.backgroundColor = '#ccc';
+            fallbackButton.style.display = 'inline-block';
+            statusDiv.textContent = 'Using basic file upload mode for better browser compatibility.';
+        } else {
+            statusDiv.textContent = 'Advanced file monitoring mode available. Select a file to start.';
+        }
+
+        // Advanced file picker (Chrome/Edge)
+        selectFileButton.addEventListener('click', async () => {
+            if (intervalId) clearInterval(intervalId);
+            if (activeFileContentObserver) {
+                activeFileContentObserver.disconnect();
+                activeFileContentObserver = null;
+            }
+
+            try {
+                const [handle] = await window.showOpenFilePicker({
+                    types: [{ description: 'Text Files', accept: { 'text/plain': ['.txt'] } }]
+                });
+                fileHandle = handle;
+                fileNameSpan.textContent = fileHandle.name;
+                statusDiv.textContent = `Preparing to monitor file: ${fileHandle.name}`;
+                lastReadPosition = 0;
+                isUsingFallbackMode = false;
+
+                await processFileContent(true);
+                intervalId = setInterval(checkAndUpdateFile, refreshInterval);
+            } catch (err) {
+                handleFileError(err, 'User cancelled file selection or an error occurred.');
+            }
+        });
+
+        // Fallback file input (Firefox/Safari)
+        fallbackButton.addEventListener('click', () => {
+            fallbackFileInput.click();
+        });
+
+        fallbackFileInput.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (file && file.type === 'text/plain') {
+                fileNameSpan.textContent = file.name;
+                statusDiv.textContent = `Loading file: ${file.name} (Basic mode - no auto-refresh)`;
+                isUsingFallbackMode = true;
+                
+                if (intervalId) clearInterval(intervalId);
+                
+                try {
+                    const text = await file.text();
+                    displayFileContent(text, file.name);
+                    statusDiv.textContent = `File "${file.name}" loaded successfully. Refresh page to load a new file.`;
+                } catch (err) {
+                    statusDiv.textContent = `Error reading file: ${err.message}`;
+                }
+            } else {
+                statusDiv.textContent = 'Please select a valid .txt file.';
+            }
+        });
+
+        async function processFileContent(isInitialLoadOrFullRefresh = false) {
+            if (!fileHandle) return;
+
+            try {
+                const file = await fileHandle.getFile();
+                let fullTextToDisplay = "";
+
+                if (isInitialLoadOrFullRefresh) {
+                    fullTextToDisplay = await file.text();
+                    lastReadPosition = file.size;
+                    statusDiv.textContent = `File "${file.name}" has been fully loaded. Size: ${file.size} bytes.`;
+                } else {
+                    if (file.size > lastReadPosition) {
+                        const newContentSlice = file.slice(lastReadPosition);
+                        const newTextChunk = await newContentSlice.text();
+                        
+                        const currentFileContentElement = document.getElementById('fileContent');
+                        let previousFullText = "";
+                        if (currentFileContentElement && currentFileContentElement.dataset.fullText) {
+                            previousFullText = currentFileContentElement.dataset.fullText;
+                        }
+                        let separator = (previousFullText && newTextChunk) ? "\n" : "";
+                        fullTextToDisplay = previousFullText + separator + newTextChunk;
+
+                        lastReadPosition = file.size;
+                        statusDiv.textContent = `File "${file.name}" has new content. Current size: ${file.size} bytes.`;
+                    } else {
+                        const currentFileContentElement = document.getElementById('fileContent');
+                        fullTextToDisplay = (currentFileContentElement && currentFileContentElement.dataset.fullText) ?
+                                            currentFileContentElement.dataset.fullText :
+                                            await file.text();
+                        if (currentFileContentElement && currentFileContentElement.dataset.fullText === undefined) {
+                             lastReadPosition = file.size;
+                        }
+                    }
+                }
+
+                displayFileContent(fullTextToDisplay, file.name);
+                lastModifiedTime = file.lastModified;
+
+            } catch (err) {
+                handleFileError(err, 'Error processing file content.');
+            }
+        }
+
+        function displayFileContent(text, fileName) {
+            const parentOfFileContent = document.getElementById('contentOuterContainer');
+            const oldFileContentElement = document.getElementById('fileContent');
+
+            // Disconnect existing observer before removing the old element
+            if (oldFileContentElement && oldFileContentElement._currentObserver) {
+                oldFileContentElement._currentObserver.disconnect();
+                oldFileContentElement._currentObserver = null;
+            }
+            if (activeFileContentObserver) {
+                 activeFileContentObserver.disconnect();
+                 activeFileContentObserver = null;
+            }
+
+            if (oldFileContentElement) {
+                parentOfFileContent.removeChild(oldFileContentElement);
+            }
+
+            const newFileContentElement = document.createElement('div');
+            newFileContentElement.id = 'fileContent';
+            newFileContentElement.dataset.fullText = text;
+            parentOfFileContent.appendChild(newFileContentElement);
+
+            const lines = text.split('\n');
+            lines.forEach(lineText => {
+                const lineElement = document.createElement('div');
+                lineElement.className = 'text-line';
+                lineElement.textContent = lineText;
+                newFileContentElement.appendChild(lineElement);
+            });
+
+            scrollToBottom(newFileContentElement);
+
+            // Setup MutationObserver for the new content element (only in advanced mode)
+            if (!isUsingFallbackMode) {
+                activeFileContentObserver = new MutationObserver(() => {
+                    clearTimeout(scrollDebounceTimeoutId);
+                    scrollDebounceTimeoutId = setTimeout(() => {
+                        const currentElement = document.getElementById('fileContent');
+                        if (currentElement) {
+                            scrollToBottom(currentElement);
+                        }
+                    }, DEBOUNCE_DELAY);
+                });
+
+                const observerConfig = {
+                    childList: true,
+                    subtree: true
+                };
+                activeFileContentObserver.observe(newFileContentElement, observerConfig);
+                newFileContentElement._currentObserver = activeFileContentObserver;
+            }
+        }
+
+        async function checkAndUpdateFile() {
+            if (!fileHandle || isUsingFallbackMode) return;
+            try {
+                const file = await fileHandle.getFile();
+                if (file.lastModified > lastModifiedTime) {
+                    statusDiv.textContent = `Detected update for file "${file.name}"...`;
+
+                    if (file.size > lastReadPosition) {
+                        await processFileContent(false);
+                    } else {
+                        statusDiv.textContent = `File "${file.name}" content has changed or was truncated, reloading...`;
+                        lastReadPosition = 0;
+                        await processFileContent(true);
+                    }
+                }
+            } catch (err) {
+                handleFileError(err, 'Error checking for file updates.');
+            }
+        }
+
+        function scrollToBottom(element) {
+            if (element) {
+                element.scrollTop = element.scrollHeight;
+            }
+        }
+
+        function handleFileError(err, defaultMessage) {
+            if (err.name === 'AbortError') {
+                statusDiv.textContent = 'User cancelled the operation.';
+            } else if (err.name === 'NotFoundError') {
+                 statusDiv.textContent = `Error: File "${fileHandle ? fileHandle.name : ''}" not found. Please reselect.`;
+            } else {
+                statusDiv.textContent = `Error: ${err.message || defaultMessage}`;
+                console.error(err);
+            }
+            if (intervalId) clearInterval(intervalId);
+            if (activeFileContentObserver) {
+                activeFileContentObserver.disconnect();
+                activeFileContentObserver = null;
+            }
+        }
+    </script>
+
+</body>
+</html> 

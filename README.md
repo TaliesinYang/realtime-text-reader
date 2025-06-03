@@ -36,7 +36,7 @@
 2. Remember the file save location
 
 #### Step 3: Use This Tool
-1. Open [Realtime Text Reader](https://taliesinyang.github.io/buzz-realtime-reader/realtime-text-reader.html)
+1. Open [Realtime Text Reader](https://taliesinyang.github.io/realtime-text-reader/realtime-text-reader.html)
 2. Use **Chrome Browser** (required, other browsers cannot update in real-time)
 3. Click "Select File" to choose the txt file to monitor
 4. Install [ImmersiveTranslate Plugin](https://immersivetranslate.com/) for translation
@@ -121,7 +121,7 @@ MIT License - Free to use and modify
 2. 记住文件保存位置
 
 #### 第三步：使用本工具
-1. 打开 [实时文本阅读器](https://taliesinyang.github.io/buzz-realtime-reader/realtime-text-reader.html)
+1. 打开 [实时文本阅读器](https://taliesinyang.github.io/realtime-text-reader/realtime-text-reader.html)
 2. 使用 **Chrome 浏览器**（必须，其他浏览器无法实时更新）
 3. 点击"选择文件"，选择要监控的 txt 文件
 4. 安装 [ImmersiveTranslate 插件](https://immersivetranslate.com/) 进行翻译

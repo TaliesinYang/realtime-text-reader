@@ -69,7 +69,7 @@
 
 ```bash
 # Clone the project
-git clone https://github.com/yourusername/buzz-realtime-reader.git
+git clone https://github.com/TaliesinYang/realtime-text-reader.git
 
 # Open the file directly
 open realtime-text-reader.html
@@ -154,7 +154,7 @@ MIT License - Free to use and modify
 
 ```bash
 # 克隆项目
-git clone https://github.com/yourusername/buzz-realtime-reader.git
+git clone https://github.com/TaliesinYang/realtime-text-reader.git
 
 # 直接打开文件
 open realtime-text-reader.html

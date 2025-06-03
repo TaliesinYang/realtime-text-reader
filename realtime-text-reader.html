@@ -861,16 +861,16 @@
     </a>
 
     <header class="page-header">
-        <h1>实时文本阅读翻译器</h1>
-        <p class="note">监控任何实时生成的TXT文件，配合ImmersiveTranslate插件实现优雅的实时文本翻译体验。</p>
+        <h1>Realtime Text Reader & Translator</h1>
+        <p class="note">Monitor any real-time generated TXT files and translate them elegantly with ImmersiveTranslate plugin.</p>
         <p class="note compatibility-note" id="compatibilityNote" style="display: none;">
-            <strong>浏览器兼容性：</strong> 此工具在Chrome/Edge 86+中效果最佳。Firefox和Safari用户可使用下方的基础文件上传模式。
+            <strong>Browser Compatibility:</strong> This tool works best in Chrome/Edge 86+. Firefox and Safari users can use the basic file upload mode below.
         </p>
         <div class="controls">
-            <button id="selectFileButton" class="btn">选择并监控TXT文件</button>
-            <button id="fallbackButton" class="btn btn-secondary" style="display: none;">上传TXT文件（基础模式）</button>
+            <button id="selectFileButton" class="btn">Select and Monitor TXT File</button>
+            <button id="fallbackButton" class="btn btn-secondary" style="display: none;">Upload TXT File (Basic Mode)</button>
             <input type="file" id="fallbackFileInput" accept=".txt">
-            <span id="fileName">未选择文件</span>
+            <span id="fileName">No file selected</span>
         </div>
     </header>
 
@@ -881,7 +881,7 @@
 
     <div id="contentOuterContainer">
         <div id="fileContent">
-            <div class="text-line">请点击上方按钮选择要监控的 .txt 文件...</div>
+            <div class="text-line">Please click the button above to select a .txt file to monitor...</div>
         </div>
     </div>
 
@@ -914,9 +914,9 @@
             selectFileButton.disabled = true;
             selectFileButton.style.backgroundColor = '#ccc';
             fallbackButton.style.display = 'inline-block';
-            statusDiv.textContent = '使用基础文件上传模式以获得更好的浏览器兼容性。';
+            statusDiv.textContent = 'Use the basic file upload mode below for better browser compatibility.';
         } else {
-            statusDiv.textContent = '高级文件监控模式可用。选择文件开始监控。';
+            statusDiv.textContent = 'Advanced file monitoring mode is available. Select a file to start monitoring.';
         }
 
         // Advanced file picker (Chrome/Edge)
